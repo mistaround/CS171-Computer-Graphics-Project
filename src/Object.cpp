@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "Camera.h"
-#include "VCTApplication.h"
+#include "App.h"
 
 #include "Object.h"
 

@@ -1,6 +1,6 @@
 #include <GLFW/glfw3.h>
 
-#include "VCTApplication.h"
+#include "App.h"
 #include "Controls.h"
 
 Controls::Controls(float speed, float mouseSensitivity) {
@@ -14,7 +14,7 @@ Controls::~Controls() {
 	
 }
 
-void Controls::updateFromInputs(VCTApplication* app, float deltaTime) {
+void Controls::updateFromInputs(App* app, float deltaTime) {
 	GLFWwindow* window = app->getWindow();
 	Camera* camera = app->getCamera();
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-project(VCT)
+project(RTGI)
 
 # GLFW
 option(GLFW_BUILD_DOCS OFF)

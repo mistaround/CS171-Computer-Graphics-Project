@@ -5,7 +5,7 @@
 #include <string>
 #include <iostream>
 
-class VCTApplication; // Forward declaration
+class App; // Forward declaration
 
 #include "Texture.h"
 #include "Mesh.h"
