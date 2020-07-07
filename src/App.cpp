@@ -5,7 +5,6 @@
 #include <assimp/scene.h>
 
 #include "Shader.h"
-#include "HighResClock.h"
 #include "App.h"
 
 App::App(const int width, const int height, GLFWwindow* window) {
@@ -26,6 +25,14 @@ App::~App() {
 		delete (*obj);
 	}
 	objects_.clear();
+}
+
+int App::getWindowWidth() {
+	return width_;
+}
+
+int App::getWindowHeight() {
+	return height_;
 }
 
 GLFWwindow* App::getWindow() {
@@ -98,10 +105,9 @@ bool App::initialize() {
 	// Speed, Mouse sensitivity
 	controls_ = new Controls(10.0f, 0.0015f);
 
-	standardShader_ = loadShaders("../shaders/standard.vert", "../shaders/standard.frag");
-	voxelizationShader_ = loadShaders("../shaders/voxelization.vert", "../shaders/voxelization.frag", "../shaders/voxelization.geom");
+	standardShader_ = loadShaders("../shaders/render.vert", "../shaders/render.frag");
 	shadowShader_ = loadShaders("../shaders/shadow.vert", "../shaders/shadow.frag");
-	quadShader_ = loadShaders("../shaders/quad.vert", "../shaders/quad.frag");
+	voxelizationShader_ = loadShaders("../shaders/Voxel.vert", "../shaders/Voxel.frag", "../shaders/Voxel.geom");
 	renderVoxelsShader_ = loadShaders("../shaders/renderVoxels.vert", "../shaders/renderVoxels.frag", "../shaders/renderVoxels.geom");
 
 	// Load objects
@@ -132,6 +138,7 @@ bool App::initialize() {
 
 	glGenTextures(1, &depthTexture_.textureID);
 	glBindTexture(GL_TEXTURE_2D, depthTexture_.textureID);
+	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, depthTexture_.width, depthTexture_.height, 0, GL_RG, GL_FLOAT, NULL);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, depthTexture_.width, depthTexture_.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -154,11 +161,12 @@ bool App::initialize() {
 	// ------------------------------------------------------------------- //
 	// --------------------- 3D texture initialization ------------------- //
 	// ------------------------------------------------------------------- //
+
 	voxelTexture_.size = voxelDimensions_;
 	voxelNormal_.size = voxelDimensions_;
 
 	glEnable(GL_TEXTURE_3D);
-
+	// Generate Voxel Albedo Texture
 	glGenTextures(1, &voxelTexture_.textureID);
 	glBindTexture(GL_TEXTURE_3D, voxelTexture_.textureID);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -179,52 +187,25 @@ bool App::initialize() {
 	}
 
 	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, voxelTexture_.size, voxelTexture_.size, voxelTexture_.size, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-
 	glGenerateMipmap(GL_TEXTURE_3D);
 
+	// Generate Voxel Normal Texture
 	glGenTextures(1, &voxelNormal_.textureID);
 	glBindTexture(GL_TEXTURE_3D, voxelNormal_.textureID);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	// Fill 3D texture with empty values
-
-
 	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, voxelNormal_.size, voxelNormal_.size, voxelNormal_.size, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	delete[] data;
-
 	glGenerateMipmap(GL_TEXTURE_3D);
 
-	// Create projection matrices used to project stuff onto each axis in the voxelization step
+	delete[] data;
+
+	// Create projection matrices used to project stuff onto each axis in the Voxel step
 	float size = voxelGridWorldSize_;
 	// left, right, bottom, top, zNear, zFar
-
 	projectionMatrix = glm::ortho(-size * 0.5f, size*0.5f, -size * 0.5f, size*0.5f, size*0.5f, size*1.5f);
 	projX_ = projectionMatrix * glm::lookAt(glm::vec3(size, 0, 0), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
 	projY_ = projectionMatrix * glm::lookAt(glm::vec3(0, size, 0), glm::vec3(0, 0, 0), glm::vec3(0, 0, -1));
 	projZ_ = projectionMatrix * glm::lookAt(glm::vec3(0, 0, size), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-
-	// projection matrices    
-	// ------------------------------------------------------------------- //
-	// -------------------------------- Misc ----------------------------- //
-	// ------------------------------------------------------------------- //
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	// Quad FBO
-	static const GLfloat quad[] = {
-		-1.0f, -1.0f, 0.0f,
-		 1.0f, -1.0f, 0.0f,
-		-1.0f,  1.0f, 0.0f,
-		-1.0f,  1.0f, 0.0f,
-		 1.0f, -1.0f, 0.0f,
-		 1.0f,  1.0f, 0.0f,
-	};
-
-	glGenBuffers(1, &quadVBO_);
-	glBindBuffer(GL_ARRAY_BUFFER, quadVBO_);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	glGenVertexArrays(1, &quadVertexArray_);
 
 	// Draw depth for shadow mapping and voxelize scene once
 	drawDepthTexture();
@@ -291,6 +272,10 @@ void App::updateInput() {
 		showAmbientOcculision_ = !showAmbientOcculision_;
 		press4_ = true;
 	}
+	if (!press5_ && glfwGetKey(window_, GLFW_KEY_5) == GLFW_PRESS) {
+		showSoftShadow_ = !showSoftShadow_;
+		press5_ = true;
+	}
 
 	if (glfwGetKey(window_, GLFW_KEY_1) == GLFW_RELEASE) {
 		press1_ = false;
@@ -304,51 +289,38 @@ void App::updateInput() {
 	if (glfwGetKey(window_, GLFW_KEY_4) == GLFW_RELEASE) {
 		press4_ = false;
 	}
+	if (glfwGetKey(window_, GLFW_KEY_5) == GLFW_RELEASE) {
+		press5_ = false;
+	}
 
+	// When light source changed we need to re-Voxel to calculate the 3D texture and shadowmap (Time comsuming)
+	// TODO: Optimize
 	if (lightDirection_[0] < 0.8f && glfwGetKey(window_, GLFW_KEY_LEFT) == GLFW_PRESS) {
 		lightDirection_ = lightDirection_ + glm::vec3(0.02, 0, 0);
-		voxelizeScene();
+		//voxelizeScene();
 		depthmap();
-		drawDepthTexture();
 	}
 
 	if (lightDirection_[0] > -0.8f && glfwGetKey(window_, GLFW_KEY_RIGHT) == GLFW_PRESS) {
 		lightDirection_ = lightDirection_ - glm::vec3(0.02, 0, 0);
-		voxelizeScene();
+		//voxelizeScene();
 		depthmap();
-		drawDepthTexture();
 	}
 
 	if (lightDirection_[2] < 0.8f && glfwGetKey(window_, GLFW_KEY_UP) == GLFW_PRESS) {
 		lightDirection_ = lightDirection_ + glm::vec3(0, 0, 0.02);
-		voxelizeScene();
+		//voxelizeScene();
 		depthmap();
-		drawDepthTexture();
 	}
 
 	if (lightDirection_[2] > -0.8f && glfwGetKey(window_, GLFW_KEY_DOWN) == GLFW_PRESS) {
 		lightDirection_ = lightDirection_ - glm::vec3(0, 0, 0.02);
-		voxelizeScene();
+		//voxelizeScene();
 		depthmap();
-		drawDepthTexture();
 	}
 }
 
 void App::draw() {
-	//drawDepthTexture();
-
-	//auto start = timer::HighResClock::now();
-
-	//voxelizeScene();
-
-	//auto stop = timer::HighResClock::now();
-	//auto time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
-	//std::cout << "voxelize total: " << time << std::endl;
-
-	// ------------------------------------------------------------------- // 
-	// --------------------- Draw the scene normally --------------------- //
-	// ------------------------------------------------------------------- //
-
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);
 
@@ -365,8 +337,8 @@ void App::draw() {
 	glUseProgram(standardShader_);
 
 	glm::vec3 camPos = camera_->getPosition();
-	glUniform3f(glGetUniformLocation(standardShader_, "CameraPosition"), camPos.x, camPos.y, camPos.z);
-	glUniform3f(glGetUniformLocation(standardShader_, "LightDirection"), lightDirection_.x, lightDirection_.y, lightDirection_.z);
+	glUniform3f(glGetUniformLocation(standardShader_, "CamPos"), camPos.x, camPos.y, camPos.z);
+	glUniform3f(glGetUniformLocation(standardShader_, "LightDir"), lightDirection_.x, lightDirection_.y, lightDirection_.z);
 	glUniform1f(glGetUniformLocation(standardShader_, "VoxelGridWorldSize"), voxelGridWorldSize_);
 	glUniform1i(glGetUniformLocation(standardShader_, "VoxelDimensions"), voxelDimensions_);
 
@@ -374,6 +346,7 @@ void App::draw() {
 	glUniform1f(glGetUniformLocation(standardShader_, "ShowIndirectDiffuse"), showIndirectDiffuse_);
 	glUniform1f(glGetUniformLocation(standardShader_, "ShowIndirectSpecular"), showIndirectSpecular_);
 	glUniform1f(glGetUniformLocation(standardShader_, "ShowAmbientOcculision"), showAmbientOcculision_);
+	glUniform1f(glGetUniformLocation(standardShader_, "ShowSoftShadow"), showSoftShadow_);
 
 	glActiveTexture(GL_TEXTURE0 + 5);
 	glBindTexture(GL_TEXTURE_2D, depthTexture_.textureID);
@@ -383,14 +356,16 @@ void App::draw() {
 	glBindTexture(GL_TEXTURE_3D, voxelTexture_.textureID);
 	glUniform1i(glGetUniformLocation(standardShader_, "VoxelTexture"), 6);
 
+	glActiveTexture(GL_TEXTURE0 + 7);
+	glBindTexture(GL_TEXTURE_3D, voxelNormal_.textureID);
+	glUniform1i(glGetUniformLocation(standardShader_, "VoxelNormal"), 7);
+
 	for (std::vector<Object*>::iterator obj = objects_.begin(); obj != objects_.end(); ++obj) {
 		(*obj)->draw(viewMatrix, projectionMatrix, depthViewProjectionMatrix_, standardShader_);
 	}
 
 	// Draw voxels for debugging (can't draw large voxel sets like 512^3)
 	//drawVoxels();
-
-	//drawTextureQuad(depthTexture_.textureID);
 }
 
 void App::drawDepthTexture() {
@@ -424,8 +399,9 @@ void App::voxelizeScene() {
 	glUseProgram(voxelizationShader_);
 
 	// Set uniforms
-	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelTexDim"), voxelTexture_.size);
 	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelDim"), voxelDimensions_);
+	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelTexDim"), voxelTexture_.size);
+	glUniform1i(glGetUniformLocation(voxelizationShader_, "WorldSize"), voxelGridWorldSize_);
 	glUniformMatrix4fv(glGetUniformLocation(voxelizationShader_, "ProjX"), 1, GL_FALSE, &projX_[0][0]);
 	glUniformMatrix4fv(glGetUniformLocation(voxelizationShader_, "ProjY"), 1, GL_FALSE, &projY_[0][0]);
 	glUniformMatrix4fv(glGetUniformLocation(voxelizationShader_, "ProjZ"), 1, GL_FALSE, &projZ_[0][0]);
@@ -435,13 +411,13 @@ void App::voxelizeScene() {
 	glBindTexture(GL_TEXTURE_2D, depthTexture_.textureID);
 	glUniform1i(glGetUniformLocation(voxelizationShader_, "ShadowMap"), 5);
 
-	// Bind single level of texture to image unit so we can write to it from shaders
+	// Write Voxels with color information into a 3D-texture
 	glBindImageTexture(6, voxelTexture_.textureID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA8);
 	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelTexture"), 6);
 
-
-	glBindImageTexture(8, voxelNormal_.textureID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA8);
-	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelNormal"), 8);
+	// Write Voxels with normal information into a 3D-texture
+	glBindImageTexture(7, voxelNormal_.textureID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA8);
+	glUniform1i(glGetUniformLocation(voxelizationShader_, "VoxelNormal"), 7);
 
 	for (std::vector<Object*>::iterator obj = objects_.begin(); obj != objects_.end(); ++obj) {
 		(*obj)->drawTo3DTexture(voxelizationShader_, depthViewProjectionMatrix_);
@@ -458,7 +434,15 @@ void App::voxelizeScene() {
 	glViewport(0, 0, width_, height_);
 }
 
+void App::generateOctree()
+{
+	// TODO: Generate Octree structure using 3D Texture
+}
 
+void App::Aniso()
+{
+	// TODO: After octree, do anisotropic filtering
+}
 
 // For debugging
 void App::drawVoxels() {
